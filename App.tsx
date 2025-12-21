@@ -72,6 +72,7 @@ interface RightPanelProps {
   onDeleteIdea: (id: number) => void;
   onEditIdea: (idea: CreativeIdea) => void;
   onToggleFavorite?: (id: number) => void; // 切换收藏状态
+  onClearRecentUsage?: (id: number) => void; // 清除使用记录（重置order）
 }
 
 interface CanvasProps {
@@ -802,7 +803,13 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
                 按 Esc 或点击外部关闭
               </p>
               <button
-                onClick={() => setIsPromptExpanded(false)}
+                onClick={() => {
+                  setIsPromptExpanded(false);
+                  // BP模式下，点击完成后自动触发智能体处理（相当于点击企鹅按钮）
+                  if (activeBPTemplate && canGenerateSmartPrompt) {
+                    handleGenerateSmartPrompt();
+                  }
+                }}
                 className="px-4 py-2 rounded-lg text-xs font-semibold transition-all hover:scale-105 active:scale-95"
                 style={{
                   backgroundColor: activeBPTemplate ? '#eed16d' : '#3b82f6',
@@ -810,7 +817,7 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
                   boxShadow: activeBPTemplate ? '0 10px 25px -5px rgba(238,209,109,0.25)' : '0 10px 25px -5px rgba(59,130,246,0.25)',
                 }}
               >
-                完成
+                {activeBPTemplate ? '完成并生成提示词' : '完成'}
               </button>
             </div>
           </div>
@@ -1145,6 +1152,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
   onDeleteIdea,
   onEditIdea,
   onToggleFavorite,
+  onClearRecentUsage,
 }) => {
   const { theme } = useTheme();
   
@@ -1154,7 +1162,9 @@ const RightPanel: React.FC<RightPanelProps> = ({
   const recentIdeas = [...creativeIdeas].sort((a, b) => (b.order || 0) - (a.order || 0)).slice(0, 5);
   
   // 渲染单个创意项 - 改进版本，支持收藏和BP标签
-  const renderIdeaItem = (idea: CreativeIdea, showFavorite = true) => (
+  // showDelete: 是否显示删除按钮
+  // showClearRecent: 是否显示清除记录按钮（最近使用列表专用）
+  const renderIdeaItem = (idea: CreativeIdea, showFavorite = true, showDelete = true, showClearRecent = false) => (
     <div
       key={idea.id}
       className="group liquid-card p-2 hover:border-blue-500/30 transition-all cursor-pointer"
@@ -1206,15 +1216,29 @@ const RightPanel: React.FC<RightPanelProps> = ({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
             </svg>
           </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onDeleteIdea(idea.id); }}
-            className="w-5 h-5 rounded flex items-center justify-center text-gray-500 hover:text-gray-400 hover:bg-gray-500/10 transition-all"
-            title="删除"
-          >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-          </button>
+          {showDelete && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDeleteIdea(idea.id); }}
+              className="w-5 h-5 rounded flex items-center justify-center text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-all"
+              title="删除创意"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          )}
+          {/* 清除使用记录按钮（最近使用列表专用） */}
+          {showClearRecent && onClearRecentUsage && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onClearRecentUsage(idea.id); }}
+              className="w-5 h-5 rounded flex items-center justify-center text-gray-500 hover:text-orange-400 hover:bg-orange-500/10 transition-all"
+              title="清除使用记录"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -1283,10 +1307,23 @@ const RightPanel: React.FC<RightPanelProps> = ({
         </div>
      </div>
      
-     {/* 收藏列表 */}
+     {/* 内容列表 */}
      <div className="flex-1 overflow-y-auto custom-scrollbar p-3">
+        {/* 最近使用 - 始终在最上方，最多显示3个 */}
+        {recentIdeas.length > 0 && (
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-medium" style={{ color: theme.colors.textMuted }}>最近使用</span>
+            </div>
+            <div className="space-y-1.5">
+              {recentIdeas.slice(0, 3).map(idea => renderIdeaItem(idea, true, false, true))}
+            </div>
+          </div>
+        )}
+        
+        {/* 收藏列表 - 在下方 */}
         {favoriteIdeas.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center py-8">
+          <div className="flex flex-col items-center justify-center text-center py-8">
             <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center mb-3">
               <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
@@ -1303,19 +1340,12 @@ const RightPanel: React.FC<RightPanelProps> = ({
             </button>
           </div>
         ) : (
-          <div className="space-y-1.5">
-            {favoriteIdeas.map(idea => renderIdeaItem(idea, false))}
-          </div>
-        )}
-        
-        {/* 最近使用 - 当收藏不多时显示 */}
-        {favoriteIdeas.length < 3 && recentIdeas.length > 0 && (
-          <div className="mt-4 pt-3 border-t" style={{ borderColor: theme.colors.border }}>
+          <div>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-medium" style={{ color: theme.colors.textMuted }}>最近使用</span>
+              <span className="text-[10px] font-medium" style={{ color: theme.colors.textMuted }}>收藏</span>
             </div>
             <div className="space-y-1.5">
-              {recentIdeas.slice(0, 3).map(idea => renderIdeaItem(idea))}
+              {favoriteIdeas.map(idea => renderIdeaItem(idea, false))}
             </div>
           </div>
         )}
@@ -1632,7 +1662,7 @@ const App: React.FC = () => {
   const [aspectRatio, setAspectRatio] = useState<string>('Auto');
   const [imageSize, setImageSize] = useState<string>('2K');
 
-  const [autoSave, setAutoSave] = useState(true);
+  const [autoSave, setAutoSave] = useState(false);
   
   // 贞贞API配置状态
   const [thirdPartyApiConfig, setThirdPartyApiConfig] = useState<ThirdPartyApiConfig>({
@@ -1780,6 +1810,24 @@ const App: React.FC = () => {
       await creativeIdeasApi.updateCreativeIdea(id, { isFavorite: !targetIdea.isFavorite });
     } catch (e) {
       console.error('保存收藏状态失败:', e);
+    }
+  }, [localCreativeIdeas]);
+
+  // 清除使用记录（重置order为0，从最近使用列表中移除）
+  const handleClearRecentUsage = useCallback(async (id: number) => {
+    const targetIdea = localCreativeIdeas.find(idea => idea.id === id);
+    if (!targetIdea) return;
+    
+    const updatedIdeas = localCreativeIdeas.map(idea => 
+      idea.id === id ? { ...idea, order: 0 } : idea
+    );
+    setLocalCreativeIdeas(updatedIdeas);
+    
+    // 保存到Node.js后端
+    try {
+      await creativeIdeasApi.updateCreativeIdea(id, { order: 0 });
+    } catch (e) {
+      console.error('清除使用记录失败:', e);
     }
   }, [localCreativeIdeas]);
 
@@ -2612,7 +2660,7 @@ const App: React.FC = () => {
     }
   }, [files, prompt, apiKey, thirdPartyApiConfig, activeSmartTemplate, activeSmartPlusTemplate, activeBPTemplate, autoSave, downloadImage, aspectRatio, imageSize, activeCreativeIdea, findNextFreePosition, handleAddToDesktop, bpInputs, smartPlusOverrides]);
 
-  // 卸载创意库：清空所有模板设置
+  // 卸载创意库：清空所有模板设置和提示词
   const handleClearTemplate = useCallback(() => {
     setActiveSmartTemplate(null);
     setActiveSmartPlusTemplate(null);
@@ -2620,6 +2668,7 @@ const App: React.FC = () => {
     setActiveCreativeIdea(null);
     setBpInputs({});
     setSmartPlusOverrides(JSON.parse(JSON.stringify(defaultSmartPlusConfig)));
+    setPrompt(''); // 清空提示词
   }, []);
 
   useEffect(() => {
@@ -3040,6 +3089,7 @@ const App: React.FC = () => {
           onDeleteIdea={handleDeleteCreativeIdea}
           onEditIdea={handleStartEditIdea}
           onToggleFavorite={handleToggleFavorite}
+          onClearRecentUsage={handleClearRecentUsage}
         />
       </div>
       
