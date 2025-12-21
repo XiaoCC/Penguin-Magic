@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { DesktopItem, DesktopImageItem, DesktopFolderItem, DesktopStackItem, DesktopPosition, GenerationHistory } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { TrashIcon } from './icons/TrashIcon';
@@ -112,35 +112,37 @@ export const Desktop: React.FC<DesktopProps> = ({
   const [showPreview, setShowPreview] = useState(false); // 是否显示预览（空格键控制）
   const [isFileDragging, setIsFileDragging] = useState(false); // 是否有文件被拖拽到桌面
 
-  // 获取当前显示的项目（根据是否在文件夹或叠放内）
-  const baseItems = openFolderId
-    ? items.filter(item => {
-        const folder = items.find(i => i.id === openFolderId) as DesktopFolderItem | undefined;
-        return folder?.itemIds.includes(item.id);
-      })
-    : openStackId
-    ? items.filter(item => {
-        const stack = items.find(i => i.id === openStackId) as DesktopStackItem | undefined;
-        return stack?.itemIds.includes(item.id);
-      })
-    : items.filter(item => {
-        // 只显示不在任何文件夹或叠放内的项目
-        const isInFolder = items.some(
-          other => other.type === 'folder' && (other as DesktopFolderItem).itemIds.includes(item.id)
-        );
-        const isInStack = items.some(
-          other => other.type === 'stack' && (other as DesktopStackItem).itemIds.includes(item.id)
-        );
-        return !isInFolder && !isInStack;
-      });
+  // 获取当前显示的项目（根据是否在文件夹或叠放内）- 使用 useMemo 优化
+  const baseItems = useMemo(() => {
+    if (openFolderId) {
+      const folder = items.find(i => i.id === openFolderId) as DesktopFolderItem | undefined;
+      return items.filter(item => folder?.itemIds.includes(item.id));
+    }
+    if (openStackId) {
+      const stack = items.find(i => i.id === openStackId) as DesktopStackItem | undefined;
+      return items.filter(item => stack?.itemIds.includes(item.id));
+    }
+    // 只显示不在任何文件夹或叠放内的项目
+    return items.filter(item => {
+      const isInFolder = items.some(
+        other => other.type === 'folder' && (other as DesktopFolderItem).itemIds.includes(item.id)
+      );
+      const isInStack = items.some(
+        other => other.type === 'stack' && (other as DesktopStackItem).itemIds.includes(item.id)
+      );
+      return !isInFolder && !isInStack;
+    });
+  }, [items, openFolderId, openStackId]);
 
-  // 根据搜索词过滤
-  const currentItems = searchQuery.trim()
-    ? baseItems.filter(item => 
-        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (item.type === 'image' && (item as DesktopImageItem).prompt?.toLowerCase().includes(searchQuery.toLowerCase()))
-      )
-    : baseItems;
+  // 根据搜索词过滤 - 使用 useMemo 优化
+  const currentItems = useMemo(() => {
+    if (!searchQuery.trim()) return baseItems;
+    const query = searchQuery.toLowerCase();
+    return baseItems.filter(item => 
+      item.name.toLowerCase().includes(query) ||
+      (item.type === 'image' && (item as DesktopImageItem).prompt?.toLowerCase().includes(query))
+    );
+  }, [baseItems, searchQuery]);
 
   // 监听容器尺寸变化（响应式布局）
   useEffect(() => {
